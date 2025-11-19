@@ -1,0 +1,11 @@
+
+diffusers>=0.24.0
+transformers
+accelerate
+peft
+safetensors
+opencv-python
+invisible-watermark
+torchmetrics
+insightface
+onnxruntime-gpu
