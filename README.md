@@ -1,177 +1,259 @@
 # Multi-Subject Image Customization
-A novel Coarse-to-Fine framework with Active QA Feedback for generating high-fidelity images containing multiple customized subjects while ensuring seamless spatial composition and identity preservation.
 
-## Project Overview
-This project addresses the critical challenge of "Identity Bleeding" and "Spatial Inconsistency" in multi-subject text-to-image generation. Unlike standard baselines that struggle to separate concepts, our approach utilizes a Layout-Aware Inpainting Pipeline combined with an Automatic Quality Assurance (QA) Loop.
+Generate one coherent SDXL image from multiple subject reference images and a
+scene prompt while keeping each identity inside its intended spatial region.
 
-### Key Innovations
-1. **Coarse-to-Fine Composition Pipeline**: A two-stage generation process that first establishes a coherent global scene (Coarse) using base SDXL, followed by localized Identity Injection (Fine) using subject-specific LoRAs. This ensures perfect lighting consistency and spatial logic.
+The optimized pipeline uses masked IP-Adapter conditioning, region-aware CLIP
+evaluation, and multi-candidate selection. Subject LoRAs remain available as an
+optional experiment, but they are no longer required for the default workflow.
 
-2. **Active QA & Self-Correction Agent**: A closed-loop feedback system that evaluates generated subjects in real-time using CLIP scores. If a subject's identity fidelity falls below a threshold, the system automatically triggers a Targeted Refinement Pass to restore features without altering the global composition.
+## Why the Original Fusion Failed
 
-### Results
-- **Identity Preservation**: High CLIP-I scores through dedicated LoRA adapters.
+The legacy implementation had several structural problems:
 
-- **Spatial Coherence**: Zero "split-world" artifacts due to global scene initialization.
+1. The background prompt generated a cat and a cup before identity injection,
+   so the later inpainting passes often created duplicate subjects.
+2. Two large rectangular masks covered almost the entire canvas. After a
+   30-pixel blur, each subject could influence the other subject's area.
+3. QA compared the full image with a short text prompt. It never compared a
+   subject crop with that subject's reference images.
+4. `MAX_RETRIES` was configured but never used.
+5. The cat training set contained five files but only two unique images, which
+   made the LoRA more likely to overfit a small number of poses.
+6. The project used Colab-only absolute paths and silently ignored LoRA loading
+   errors, making failures difficult to diagnose.
 
-- **Robustness**: Automatic error correction via the QA Agent eliminates "ghost objects" or "faded identities".
+Increasing guidance scale or inpainting strength cannot reliably fix these
+issues. The generation and evaluation architecture must isolate identities
+spatially and use reference-aware quality signals.
 
-### Requirements
+## Optimized Architecture
 
-### Hardware
+```mermaid
+flowchart LR
+    A[Subject reference images] --> B[Exact duplicate audit]
+    B --> C[IP-Adapter image embeddings]
+    D[Non-overlapping subject regions] --> E[Spatial attention masks]
+    F[Scene and interaction prompt] --> G[Single SDXL denoising pass]
+    C --> G
+    E --> G
+    G --> H[Multiple seeded candidates]
+    H --> I[Crop each subject region]
+    I --> J[Reference similarity and leakage checks]
+    J --> K[Select the best candidate]
+    K --> L[Image, JSON metrics, visual report]
+```
 
-- GPU: NVIDIA L4 / A100 (24GB+ VRAM recommended for SDXL).
+The important change is that all subjects are composed in one denoising pass.
+This preserves shared lighting and perspective. Each reference image is paired
+with a spatial mask so its visual features do not spread across the entire
+canvas.
 
-- Environment: Optimized for Google Colab.
+## Features
 
-### Software
-- Python 3.10+
+- Masked IP-Adapter Plus conditioning for multiple reference subjects
+- Non-overlapping normalized layout regions
+- Automatic exact-duplicate detection for reference datasets
+- Region-level identity similarity instead of global text-only QA
+- Competing-subject similarity to detect identity bleeding
+- Multi-seed candidate generation and automatic best-candidate selection
+- Portable paths for local machines, Colab, and Linux GPU servers
+- Optional, safer DreamBooth LoRA training command
+- JSON metrics and visual subject-crop reports
+- Unit tests and GitHub Actions
 
-- PyTorch 2.0+
+## Requirements
 
-- Diffusers (Latest)
+- Python 3.10 or newer
+- CUDA-capable NVIDIA GPU recommended
+- 16 GB VRAM minimum for conservative settings
+- 24 GB or more VRAM recommended for 1024 × 1024 generation
+- Approximately 20 GB of free disk space for SDXL, IP-Adapter, CLIP, and caches
 
-- Peft (for LoRA)
+CPU and Apple Silicon execution are supported for development and small
+experiments, but 1024 × 1024 SDXL generation will be substantially slower.
 
 ## Installation
-### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/YourUsername/MultiSubjectGen_Pro.git
-cd MultiSubjectGen_Pro
-```
-### 2. Install Dependencies
+git clone https://github.com/ShirinZheng/Multi-Subject-Image-Customization.git
+cd Multi-Subject-Image-Customization
 
-```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-#Note: The project relies on madebyollin/sdxl-vae-fp16-fix to prevent VAE numerical instability in FP16 mode.
 ```
 
-## Usage
-## Quick Start
+The first run downloads the configured SDXL, IP-Adapter, image encoder, VAE,
+and CLIP checkpoints from Hugging Face.
 
-Run the full end-to-end demo. This script handles training check, baseline comparison, ablation studies, and final visual report generation.
+## Quick Start
 
 ```bash
 python examples/run_demo.py
 ```
-Configuration
-Configure your subjects and training parameters in src/config.py:
+
+Generated artifacts:
+
+- `output/improved_result.png`: selected image
+- `output/improved_result.json`: candidate and subject-level scores
+- `output/generation_report.png`: layout, final image, and identity crops
+
+Use a custom interaction prompt:
 
 ```bash
-SUBJECTS = [
-    {
-        "name": "cat_toy",
-        "token": "sks",  # Trigger word for Subject A
-        "class": "cat",
-        "data": "data/cat_toy",
-        "lora_out": "checkpoints/lora_cat"
-    },
-    # ... Add more subjects here
-]
+python examples/run_demo.py \
+  --prompt "The same gray tabby cat gently touches the red cup with one paw on a sunlit kitchen table" \
+  --seed 120 \
+  --candidates 4
 ```
 
-# QA Threshold Settings
-QA_PASS_THRESHOLD = 23.0  # Score to trigger refinement
-Training Custom Subjects
-The system automatically checks for existing checkpoints. To force retrain:
+## Configure Different Subjects
+
+Edit `Config.SUBJECTS` in `src/config.py`. Each subject needs:
+
+- a unique name;
+- a natural-language class and description;
+- a directory containing reference images;
+- a non-overlapping normalized region `(left, top, right, bottom)`;
+- an IP-Adapter scale, usually between `0.65` and `0.85`.
+
+Example:
+
+```python
+SubjectConfig(
+    name="subject_a",
+    class_name="golden retriever",
+    description="the same adult golden retriever with a blue collar",
+    reference_dir=PROJECT_ROOT / "data" / "subject_a",
+    region=(0.05, 0.20, 0.52, 0.92),
+    adapter_scale=0.80,
+)
+```
+
+Keep a visible gap between regions. Overlapping regions are rejected because
+they are a common source of identity bleeding.
+
+## Reference Image Guidelines
+
+Use 8 to 15 unique images per subject when possible:
+
+- include front, three-quarter, and side views;
+- vary distance and background while keeping identity consistent;
+- avoid watermarks, UI overlays, motion blur, and heavy filters;
+- avoid multiple target subjects in the same reference image;
+- do not duplicate files to make the dataset appear larger.
+
+The default pipeline needs at least two unique images per subject because one is
+used for conditioning and all unique images are used for evaluation. See
+[`docs/DATA_GUIDE.md`](docs/DATA_GUIDE.md) for the full checklist.
+
+## Quality Scores
+
+For every candidate and subject, the pipeline records:
+
+- `identity_similarity`: CLIP image similarity between the generated crop and
+  that subject's reference images;
+- `prompt_alignment`: similarity between the crop and the subject description;
+- `competing_similarity`: similarity to the other subjects' references;
+- `leakage_penalty`: penalty when a competing identity is too close to the
+  intended identity;
+- `composite`: weighted subject score used for candidate selection.
+
+These values are relative ranking signals, not universal quality guarantees.
+Always inspect the selected image and subject crops, especially for faces,
+logos, exact text, or safety-critical content.
+
+## Optional LoRA Training
+
+Masked IP-Adapter generation works without custom LoRAs. If you want to retrain
+the experimental LoRAs, first clone the official Diffusers repository and set
+the training script path:
 
 ```bash
-from src.trainer import run_training
+git clone https://github.com/huggingface/diffusers.git ../diffusers
+export DIFFUSERS_TRAIN_SCRIPT="$PWD/../diffusers/examples/dreambooth/train_dreambooth_lora_sdxl.py"
 
-# Trains LoRAs for all subjects defined in config.py
-run_training()
+python -c "from src.trainer import run_training; run_training(force=True)"
 ```
-# Running Experiments
-Baseline Comparison
-Compare the naive SDXL generation against our Coarse-to-Fine approach:
+
+The trainer removes exact duplicates in a temporary curated directory and runs
+the official script without shell interpolation. The default generation path
+does not activate multiple global LoRAs, because doing so can reintroduce
+cross-subject identity bleeding.
+
+## Experiments
+
+Compare vanilla SDXL with the optimized pipeline:
 
 ```bash
 python experiments/run_baseline_comparison.py
 ```
-Output: Generates baseline_result.png vs ours_result.png in the output/ directory.
 
-# Ablation Study
-Verify the effectiveness of the Active QA Loop:
+Compare unmasked single-sample generation with masked candidate selection:
 
 ```bash
 python experiments/run_ablation.py
 ```
-Output: Generates comparison images showing results with and without the QA self-correction module.
 
-# Evaluation
-Automated Metrics
-The pipeline includes an embedded evaluator that reports CLIP Scores for Identity Preservation and Prompt Adherence during generation.
+## Tests
+
+Install lightweight development dependencies and run:
 
 ```bash
-from src.evaluation import Evaluator
-
-evaluator = Evaluator()
-score = evaluator.compute_clip_score(image, "a photo of sks cat")
-print(f"Identity Fidelity Score: {score}")
+pip install -r requirements-dev.txt
+pytest
 ```
+
+The unit suite does not download SDXL or require a GPU. Full image generation is
+intentionally kept as a manual GPU validation because model downloads and
+inference are too expensive for a normal CI runner.
 
 ## Project Structure
 
-```
+```text
 Multi-Subject-Image-Customization/
-├── src/
-│   ├── config.py                 # Global configuration & Subject definitions
-│   ├── multi_subject_pipeline.py # Core: Coarse-to-Fine logic + QA Loop
-│   ├── trainer.py                # SDXL LoRA training wrapper
-│   ├── spatial_layout.py         # Layout mask generator
-│   ├── evaluation.py             # CLIP evaluation metrics
-│   └── visualization.py          # Report visualization tools
-├── experiments/
-│   ├── run_baseline_comparison.py
-│   └── run_ablation.py           # QA Loop ablation study
+├── data/                         # Reference images
+├── docs/                         # Architecture and data guidance
 ├── examples/
-│   └── run_demo.py               # Main entry point
-├── data/                         # Training images (User Uploaded)
-├── output/                       # Generated results
-└── requirements.txt                   
-└── README.md
+│   └── run_demo.py               # Main command-line entry point
+├── experiments/
+│   ├── run_ablation.py
+│   └── run_baseline_comparison.py
+├── src/
+│   ├── config.py                 # Models, subjects, regions, and parameters
+│   ├── data_quality.py           # Duplicate and dataset validation
+│   ├── evaluation.py             # Region-aware CLIP evaluation
+│   ├── multi_subject_pipeline.py # Masked generation and candidate selection
+│   ├── spatial_layout.py         # Validated layout masks
+│   ├── trainer.py                # Optional LoRA training
+│   └── visualization.py          # Visual quality report
+├── tests/                        # CPU-only unit tests
+├── requirements.txt
+└── requirements-dev.txt
 ```
 
-## Technical Details
-Architecture
-Base Model: stabilityai/stable-diffusion-xl-base-1.0
+## Known Limitations
 
-## Pipeline Stages:
+- CLIP similarity is useful for ranking but may miss subtle identity details.
+- A single reference image is used for IP-Adapter conditioning in the current
+  default; all unique references contribute to evaluation.
+- Exact text, hands, small accessories, and fine facial details may still need
+  manual review or a specialized identity model.
+- More subjects require smaller spatial regions and more VRAM.
+- The legacy LoRA checkpoints were removed because they were trained from a
+  duplicated, very small dataset. Retraining still requires more unique views.
 
-Phase 0 (Global): Generate a coherent background/scene using vanilla SDXL (No LoRA) to ensure unified lighting and perspective.
+## Technical References
 
-Phase 1 (Injection): Inpaint subjects into specific layout zones using dedicated LoRAs.
+- [Hugging Face Diffusers: IP-Adapter](https://huggingface.co/docs/diffusers/main/using-diffusers/ip_adapter)
+- [Hugging Face Diffusers: Loading adapters](https://huggingface.co/docs/diffusers/main/using-diffusers/loading_adapters)
+- [Hugging Face Diffusers: DreamBooth](https://huggingface.co/docs/diffusers/main/training/dreambooth)
+- [Hugging Face Transformers: CLIP](https://huggingface.co/docs/transformers/model_doc/clip)
+- [IP-Adapter paper](https://arxiv.org/abs/2308.06721)
+- [MS-Diffusion paper](https://arxiv.org/abs/2406.07209)
 
-Phase 2 (QA & Refinement): Evaluate Identity Score. If low, trigger a high-strength refinement pass (strength=0.65) with boosted prompt weights.
+## License
 
-## Optimization:
-
-FP16 Pipeline: Full half-precision inference for speed.
-
-VAE Fix: Uses sdxl-vae-fp16-fix to avoid black-image artifacts common in SDXL FP16.
-
-## Troubleshooting
-VAE "Black Image" or NaN Errors
-We use a specific fixed VAE (madebyollin/sdxl-vae-fp16-fix) to resolve standard SDXL numerical overflow issues in FP16. Ensure your internet connection allows downloading from HuggingFace.
-
-## Identity Bleeding (Subjects mixing)
-If subjects mix (e.g., "cat looks like a mug"), ensure your layout masks in src/spatial_layout.py have sufficient separation, or increase the QA_PASS_THRESHOLD in config.py to force stricter refinement.
-
-## Citation
-If you use this code in your research, please cite:
-
-```bibtex
-@article{multisubject2025,
-  title={Multi-Subject Image Customization via Coarse-to-Fine Active QA},
-  author={[Your Name]},
-  journal={Computer Vision Course Final Project},
-  year={2025}
-}
-```
-
-## Contact
-
-For questions or issues, please:
-- Open an issue on GitHub
-- Email: [shirinzheng871@gmail.com]
+This project is released under the MIT License.

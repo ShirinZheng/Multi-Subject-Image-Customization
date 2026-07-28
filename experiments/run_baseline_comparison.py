@@ -1,45 +1,59 @@
+"""Generate a vanilla SDXL baseline and the masked reference-conditioned result."""
+
+from __future__ import annotations
+
 import sys
-sys.path.append("/content/MultiSubjectGen_Pro")
-from src.multi_subject_pipeline import MultiSubjectPipeline
-from diffusers import StableDiffusionXLPipeline
-import torch
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.config import Config
+from src.multi_subject_pipeline import MultiSubjectPipeline
 
-def run_experiment():
-    print("=== Experiment: Baseline vs. Ours ===")
-    
-    # 1. Baseline: Vanilla SDXL (pure FP32)
-    print("Running Baseline (Vanilla SDXL in FP32 Mode)...")
-    
-    torch.cuda.empty_cache()
 
-    base_pipe = StableDiffusionXLPipeline.from_pretrained(
-        Config.MODEL_NAME, 
-        use_safetensors=True
+def generate_baseline():
+    import torch
+    from diffusers import AutoPipelineForText2Image
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.float16 if device == "cuda" else torch.float32
+    pipe = AutoPipelineForText2Image.from_pretrained(
+        Config.MODEL_NAME,
+        torch_dtype=dtype,
+        use_safetensors=True,
+        variant="fp16" if device == "cuda" else None,
     )
-    
-    base_pipe.enable_model_cpu_offload()
-    
-    prompt = "a photo of sks cat toy and trk red mug on a table"
-    
-    # generalizarion
-    baseline_img = base_pipe(prompt=prompt, num_inference_steps=30).images[0]
-    baseline_img.save(f"{Config.PROJECT_ROOT}/output/baseline_result.png")
-    print(" Baseline saved.")
-    
-    # delete and clean up
-    del base_pipe
-    torch.cuda.empty_cache()
+    if device == "cuda":
+        pipe.enable_model_cpu_offload()
+    else:
+        pipe.to(device)
 
-    # 2. Ours: Multi-Subject Pipeline
-    print("Running Ours (Proposed Method)...")
-    our_pipe = MultiSubjectPipeline()
-    our_pipe.load_loras()
-    our_img = our_pipe.generate_with_qa_loop()
-    our_img.save(f"{Config.PROJECT_ROOT}/output/ours_result.png")
-    print(" Ours saved.")
-    
-    print("Compare 'baseline_result.png' and 'ours_result.png' in the output folder.")
+    generator = torch.Generator(device="cpu").manual_seed(Config.DEFAULT_SEED)
+    return pipe(
+        prompt=Config.DEFAULT_PROMPT,
+        negative_prompt=Config.NEGATIVE_PROMPT,
+        width=Config.WIDTH,
+        height=Config.HEIGHT,
+        num_inference_steps=Config.NUM_INFERENCE_STEPS,
+        guidance_scale=Config.GUIDANCE_SCALE,
+        generator=generator,
+    ).images[0]
+
+
+def run_experiment() -> None:
+    Config.ensure_directories()
+    print("Generating vanilla SDXL baseline...")
+    baseline = generate_baseline()
+    baseline.save(Config.OUTPUT_DIR / "baseline_result.png")
+
+    print("Generating masked reference-conditioned candidates...")
+    optimized = MultiSubjectPipeline().generate()
+    optimized.image.save(Config.OUTPUT_DIR / "improved_result.png")
+    optimized.save_report(Config.OUTPUT_DIR / "improved_result.json")
+    print(f"Selected optimized score: {optimized.best_score:.4f}")
+
 
 if __name__ == "__main__":
     run_experiment()

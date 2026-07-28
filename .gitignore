@@ -1,0 +1,24 @@
+.DS_Store
+.idea/
+.vscode/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.cache/
+
+# Generated images and reports
+output/*
+!output/.gitkeep
+
+# Optional local training artifacts
+checkpoints/
+
+# Hugging Face and experiment caches
+huggingface/
+wandb/
+runs/

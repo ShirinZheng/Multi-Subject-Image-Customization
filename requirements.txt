@@ -1,11 +1,11 @@
-
-diffusers>=0.24.0
-transformers
-accelerate
-peft
-safetensors
-opencv-python
-invisible-watermark
-torchmetrics
-insightface
-onnxruntime-gpu
+torch>=2.2
+diffusers>=0.35,<0.37
+transformers>=4.48,<6
+accelerate>=1.2,<2
+peft>=0.14,<1
+safetensors>=0.4.5
+huggingface-hub>=0.27,<2
+Pillow>=10.4
+numpy>=1.26,<3
+matplotlib>=3.8
+bitsandbytes>=0.45; platform_system == "Linux"

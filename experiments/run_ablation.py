@@ -1,37 +1,46 @@
-import sys
-sys.path.append("/content/MultiSubjectGen_Pro")
-from src.multi_subject_pipeline import MultiSubjectPipeline
-from src.config import Config
-import torch
+"""Compare unmasked single-sample generation with the optimized pipeline."""
 
-def run_ablation():
-    print("\n=== Starting Ablation Study ===")
-    print("Goal: Prove that the 'QA Loop' actually improves quality.")
-    
-    pipe = MultiSubjectPipeline()
-    pipe.load_loras()
-    
-    # --- Experiment A: Without QA Loop  ---
-    print("\n[Ablation A] Running WITHOUT QA Loop (Baseline)...")
-    # Temporarily save the original configuration
-    original_retries = Config.MAX_RETRIES
-    # Forcefully disable redrawing to simulate a situation without QA.
-    Config.MAX_RETRIES = 0 
-    
-    img_no_qa = pipe.generate_with_qa_loop()
-    img_no_qa.save(f"{Config.PROJECT_ROOT}/output/ablation_no_qa.png")
-    print(">> Saved 'ablation_no_qa.png'")
-    
-    # --- Experiment B: With QA Loop  ---
-    print("\n[Ablation B] Running WITH QA Loop (Ours)...")
-    # 恢复配置
-    Config.MAX_RETRIES = original_retries 
-    
-    img_with_qa = pipe.generate_with_qa_loop()
-    img_with_qa.save(f"{Config.PROJECT_ROOT}/output/ablation_with_qa.png")
-    print(">> Saved 'ablation_with_qa.png'")
-    
-    print("\n Ablation Done! Compare the two images in /output folder.")
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import Config
+from src.multi_subject_pipeline import MultiSubjectPipeline
+
+
+def run_ablation() -> None:
+    Config.ensure_directories()
+    pipeline = MultiSubjectPipeline()
+
+    print("Ablation A: one candidate without spatial masks")
+    unmasked = pipeline.generate(
+        seed=Config.DEFAULT_SEED,
+        num_candidates=1,
+        use_spatial_masks=False,
+    )
+    unmasked.image.save(Config.OUTPUT_DIR / "ablation_unmasked.png")
+    unmasked.save_report(Config.OUTPUT_DIR / "ablation_unmasked.json")
+
+    print("Ablation B: masked generation with candidate ranking")
+    optimized = pipeline.generate(
+        seed=Config.DEFAULT_SEED,
+        num_candidates=Config.NUM_CANDIDATES,
+        use_spatial_masks=True,
+    )
+    optimized.image.save(Config.OUTPUT_DIR / "ablation_optimized.png")
+    optimized.save_report(Config.OUTPUT_DIR / "ablation_optimized.json")
+
+    print(
+        "Scores: "
+        f"unmasked={unmasked.best_score:.4f}, "
+        f"optimized={optimized.best_score:.4f}"
+    )
+
 
 if __name__ == "__main__":
     run_ablation()

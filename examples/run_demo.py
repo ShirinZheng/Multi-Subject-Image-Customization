@@ -1,43 +1,72 @@
-import sys
-sys.path.append("/content/MultiSubjectGen_Pro")
-from src.trainer import run_training
-from experiments.run_baseline_comparison import run_experiment
-from experiments.run_ablation import run_ablation
-from src.visualization import Visualizer
-from PIL import Image
-from src.config import Config
-from src.spatial_layout import LayoutGenerator
+"""Command-line demo for masked multi-subject customization."""
 
-def main():
-    print(" Starting Full Project Demo ...")
-    
-    # 1. Training check (skip if a model already exists)
-    run_training()
-    
-    # 2. run Baseline comparation (Vanilla SDXL vs Ours)
-    # This will generate baseline_result.png and ours_result.png
-    run_experiment()
-    
-    # 3. Running ablation experiments (No-QA vs. With-QA)
-    # This will generate ablation_no_qa.png and ablation_with_qa.png
-    run_ablation()
-    
-    # 4. Generate visual analysis charts.
-    print("\n Generating Visual Analysis...")
-    viz = Visualizer()
-    
-    # Load the "Ours" result that was just generated.
-    try:
-        final_img = Image.open(f"{Config.PROJECT_ROOT}/output/ours_result.png")
-        # Reacquire Mask only for drawing.
-        layout_gen = LayoutGenerator()
-        _, masks = layout_gen.get_dual_subject_layout()
-        
-        viz.save_process_grid(None, masks, final_img, filename="final_report_viz.png")
-    except Exception as e:
-        print(f" Skipped visualization: {e}")
-    
-    print("\n Demo Finished! All results are in /content/MultiSubjectGen_Pro/output")
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.config import Config
+from src.multi_subject_pipeline import MultiSubjectPipeline
+from src.visualization import Visualizer
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate a spatially isolated multi-subject image."
+    )
+    parser.add_argument(
+        "--prompt",
+        default=Config.DEFAULT_PROMPT,
+        help="Scene and interaction prompt.",
+    )
+    parser.add_argument("--seed", type=int, default=Config.DEFAULT_SEED)
+    parser.add_argument(
+        "--candidates",
+        type=int,
+        default=Config.NUM_CANDIDATES,
+        help="Number of candidates to generate and rank.",
+    )
+    parser.add_argument(
+        "--device",
+        choices=("cuda", "mps", "cpu"),
+        default=None,
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=Config.OUTPUT_DIR / "improved_result.png",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    Config.ensure_directories()
+
+    pipeline = MultiSubjectPipeline(device=args.device)
+    result = pipeline.generate(
+        prompt=args.prompt,
+        seed=args.seed,
+        num_candidates=args.candidates,
+    )
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    result.image.save(args.output)
+    report_path = args.output.with_suffix(".json")
+    result.save_report(report_path)
+    grid_path = Visualizer(args.output.parent).save_result_grid(result)
+
+    print(f"Selected seed: {result.best_seed}")
+    print(f"Composite score: {result.best_score:.4f}")
+    print(f"Image: {args.output}")
+    print(f"Metrics: {report_path}")
+    print(f"Visual report: {grid_path}")
+
 
 if __name__ == "__main__":
     main()
