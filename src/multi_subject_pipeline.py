@@ -91,7 +91,11 @@ class MultiSubjectPipeline:
             height=Config.HEIGHT,
             subjects=self.subjects,
         )
-        self.evaluator = evaluator or Evaluator(device=self.device)
+        # Keeping the CLIP evaluator on MPS alongside SDXL causes severe unified-
+        # memory pressure after the first candidate. CPU evaluation leaves the
+        # accelerator available for the remaining denoising passes.
+        evaluation_device = "cpu" if self.device == "mps" else self.device
+        self.evaluator = evaluator or Evaluator(device=evaluation_device)
         self.pipe = pipe or self._build_pipeline()
         self._mask_processor = mask_processor
         self._generator_factory = generator_factory or self._make_generator
@@ -125,7 +129,8 @@ class MultiSubjectPipeline:
                 "Run `pip install -r requirements.txt` first."
             ) from exc
 
-        dtype = torch.float16 if self.device == "cuda" else torch.float32
+        accelerator_device = self.device in {"cuda", "mps"}
+        dtype = torch.float16 if accelerator_device else torch.float32
         image_encoder = CLIPVisionModelWithProjection.from_pretrained(
             Config.IP_ADAPTER_REPO,
             subfolder=Config.IP_ADAPTER_IMAGE_ENCODER_SUBFOLDER,
@@ -141,7 +146,7 @@ class MultiSubjectPipeline:
             vae=vae,
             torch_dtype=dtype,
             use_safetensors=True,
-            variant="fp16" if self.device == "cuda" else None,
+            variant="fp16" if accelerator_device else None,
         )
         pipe.scheduler = EulerDiscreteScheduler.from_config(pipe.scheduler.config)
         pipe.enable_vae_slicing()
@@ -235,7 +240,7 @@ class MultiSubjectPipeline:
             horizontal = "left" if center_x < 0.4 else "right" if center_x > 0.6 else "center"
             vertical = "foreground" if center_y > 0.6 else "background"
             positions.append(
-                f"{subject.description} appears once in the {horizontal} {vertical}"
+                f"{subject.class_name}: {horizontal} {vertical}, once"
             )
         return "; ".join(positions)
 
@@ -293,7 +298,7 @@ class MultiSubjectPipeline:
             use_spatial_masks=use_spatial_masks,
         )
 
-        user_prompt = (prompt or Config.DEFAULT_PROMPT).strip()
+        user_prompt = (prompt or Config.DEFAULT_PROMPT).strip().rstrip(".")
         composed_prompt = f"{user_prompt}. Layout constraints: {self._layout_prompt()}."
         images: list[Image.Image] = []
         scores: list[CandidateScore] = []

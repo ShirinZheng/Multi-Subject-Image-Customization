@@ -14,6 +14,9 @@ htmlcov/
 # Generated images and reports
 output/*
 !output/.gitkeep
+!output/high_quality_768.png
+!output/high_quality_768.json
+!output/generation_report.png
 
 # Optional local training artifacts
 checkpoints/

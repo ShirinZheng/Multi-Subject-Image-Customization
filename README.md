@@ -70,8 +70,9 @@ canvas.
 - 24 GB or more VRAM recommended for 1024 × 1024 generation
 - Approximately 20 GB of free disk space for SDXL, IP-Adapter, CLIP, and caches
 
-CPU and Apple Silicon execution are supported for development and small
-experiments, but 1024 × 1024 SDXL generation will be substantially slower.
+CPU and Apple Silicon execution are supported. A 768 × 768 quality-oriented
+Apple M3 run is documented below; 1024 × 1024 generation will be substantially
+slower and can exceed the unified-memory budget of a 16 GB machine.
 
 ## Installation
 
@@ -99,6 +100,26 @@ Generated artifacts:
 - `output/improved_result.png`: selected image
 - `output/improved_result.json`: candidate and subject-level scores
 - `output/generation_report.png`: layout, final image, and identity crops
+
+## Validated Apple Silicon Result
+
+The full pipeline was validated on an Apple M3 with 16 GB unified memory using
+the MPS backend, 768 × 768 output, 28 inference steps, and three candidates.
+The selected Seed 42 candidate scored `73.0284` and contains both spatially
+isolated subjects with coherent lighting and contact shadows.
+
+![Apple M3 high-quality multi-subject result](output/high_quality_768.png)
+
+Committed validation artifacts:
+
+- [`output/high_quality_768.png`](output/high_quality_768.png): selected image;
+- [`output/high_quality_768.json`](output/high_quality_768.json): all three
+  candidate scores and subject-level metrics;
+- [`output/generation_report.png`](output/generation_report.png): spatial masks,
+  selected candidate, and subject crops.
+
+See [`docs/MPS_RUN.md`](docs/MPS_RUN.md) for the exact command, setup notes, and
+memory guidance used for the validated run.
 
 Use a custom interaction prompt:
 
@@ -216,6 +237,7 @@ inference are too expensive for a normal CI runner.
 Multi-Subject-Image-Customization/
 ├── data/                         # Reference images
 ├── docs/                         # Architecture and data guidance
+│   └── MPS_RUN.md                # Reproducible Apple Silicon validation
 ├── examples/
 │   └── run_demo.py               # Main command-line entry point
 ├── experiments/
