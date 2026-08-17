@@ -1,0 +1,87 @@
+{
+  "prompt": "Photorealistic gray tabby cat with white chest and paws on the left, small glossy red ceramic mug with one handle on the right, both on one walnut table, warm window light, natural shadows. Layout constraints: gray tabby cat: left background, once; small red ceramic cup: right foreground, once.",
+  "best_seed": 42,
+  "best_score": 73.0284,
+  "candidates": [
+    {
+      "seed": 42,
+      "composite": 73.0284,
+      "subjects": [
+        {
+          "subject": "tabby_cat",
+          "identity_similarity": 91.1264,
+          "prompt_alignment": 32.2097,
+          "competing_similarity": 59.2474,
+          "leakage_penalty": 0.0,
+          "composite": 76.3972
+        },
+        {
+          "subject": "red_mug",
+          "identity_similarity": 83.8045,
+          "prompt_alignment": 27.2255,
+          "competing_similarity": 69.4336,
+          "leakage_penalty": 0.0,
+          "composite": 69.6597
+        }
+      ]
+    },
+    {
+      "seed": 43,
+      "composite": 72.1358,
+      "subjects": [
+        {
+          "subject": "tabby_cat",
+          "identity_similarity": 93.443,
+          "prompt_alignment": 31.3578,
+          "competing_similarity": 57.666,
+          "leakage_penalty": 0.0,
+          "composite": 77.9217
+        },
+        {
+          "subject": "red_mug",
+          "identity_similarity": 79.3667,
+          "prompt_alignment": 27.2996,
+          "competing_similarity": 59.6946,
+          "leakage_penalty": 0.0,
+          "composite": 66.3499
+        }
+      ]
+    },
+    {
+      "seed": 44,
+      "composite": 69.7488,
+      "subjects": [
+        {
+          "subject": "tabby_cat",
+          "identity_similarity": 89.2136,
+          "prompt_alignment": 30.7169,
+          "competing_similarity": 59.2291,
+          "leakage_penalty": 0.0,
+          "composite": 74.5894
+        },
+        {
+          "subject": "red_mug",
+          "identity_similarity": 78.0369,
+          "prompt_alignment": 25.5218,
+          "competing_similarity": 67.4014,
+          "leakage_penalty": 0.0,
+          "composite": 64.9081
+        }
+      ]
+    }
+  ],
+  "reference_data": [
+    {
+      "directory": "data/cat_toy",
+      "total_images": 2,
+      "unique_images": 2,
+      "exact_duplicates": 0
+    },
+    {
+      "directory": "data/red_mug",
+      "total_images": 5,
+      "unique_images": 5,
+      "exact_duplicates": 0
+    }
+  ]
+}
